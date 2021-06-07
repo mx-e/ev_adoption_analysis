@@ -1,6 +1,8 @@
 import MapView from "./views/map-view";
 import styled from "styled-components";
-import React from "react";
+import React, { useEffect, useState } from "react";
+import { requestData } from "./requests";
+import { CircularProgress } from "@material-ui/core";
 
 const AppWrap = styled.div`
   background-color: #282c34;
@@ -17,12 +19,41 @@ const Header = styled.h1`
   font-family: "Quicksand", "sans-serif";
   text-align: center;
   margin-bottom: 10px;
+  font-size: 1.6em;
 `;
-const App = () => (
-  <AppWrap>
-    <Header>Electric Vehicle Adoption in Germany</Header>
-    <MapView />
-  </AppWrap>
-);
+
+const CenteredLayout = styled.div`
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+`;
+
+const dispatchError = (err) => {
+  console.log(err);
+};
+
+const App = () => {
+  const [data, setData] = useState({});
+  useEffect(() => requestData(setData, dispatchError), [setData]);
+
+  const isDataLoaded = Object.keys(data).length > 0;
+
+  return (
+    <AppWrap>
+      <Header>
+        Is political alignment predictive of electric vehicle purchase decisions
+        ?
+      </Header>
+      {isDataLoaded ? (
+        <MapView data={data} />
+      ) : (
+        <CenteredLayout>
+          <CircularProgress color="secondary" />
+        </CenteredLayout>
+      )}
+    </AppWrap>
+  );
+};
 
 export default App;

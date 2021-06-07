@@ -1,16 +1,22 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import { geoBounds, geoCentroid, geoConicEqualArea } from "d3-geo";
 import { scaleThreshold } from "@visx/scale";
-import { schemeRdPu } from "d3-scale-chromatic";
-import { LegendThreshold } from "@visx/legend";
+import Pie from "@visx/shape/lib/shapes/Pie";
+import { scaleOrdinal } from "@visx/scale";
+import { Group } from "@visx/group";
+
+import { Tooltip, defaultStyles, useTooltip } from "@visx/tooltip";
+import { LegendThreshold, LegendOrdinal } from "@visx/legend";
 import styled from "styled-components";
-import { Slider } from "@material-ui/core";
 import { makeStyles } from "@material-ui/core";
+import { ColorSchemes, Colors } from "../utils/colorUtils";
+import { round } from "../utils/statUtils";
 
 const MapVizWrap = styled.div`
   flex-basis: 450px;
   flex-grow: 1;
   max-width: 650px;
+  position: relative;
 `;
 
 const LegendWrap = styled.div`
@@ -23,24 +29,15 @@ const LegendWrap = styled.div`
   height: 50px;
 `;
 
-const SliderWrap = styled.div`
-  width: 80%;
-  margin-left: auto;
-  margin-right: auto;
-  font-family: "Quicksand", "sans-serif";
-`;
-
-const PolyLine = ({ coordinates, projection, color }) => (
+const PolyLine = ({ coordinates, projection }) => (
   <polygon
-    stroke={"rgba(255,255,255,0.9)"}
-    strokeWidth={"0.2px"}
     points={coordinates
       .map((coordinatePair) => projection(coordinatePair).toString())
       .join(" ")}
   />
 );
 
-const Polygon = ({ coordinateList, projection, name, color }) => (
+const Polygon = ({ coordinateList, projection, name }) => (
   <g>
     {coordinateList.map((polygon, i) => (
       <PolyLine
@@ -52,7 +49,7 @@ const Polygon = ({ coordinateList, projection, name, color }) => (
   </g>
 );
 
-const MultiPolygon = ({ polygonList, projection, name, color }) => (
+const MultiPolygon = ({ polygonList, projection, name }) => (
   <g>
     {polygonList.map((polygon, i) => (
       <Polygon
@@ -64,9 +61,6 @@ const MultiPolygon = ({ polygonList, projection, name, color }) => (
     ))}
   </g>
 );
-
-const getYearsFromMeasure = (geoJson, measure) =>
-  Object.keys(geoJson.features[0].data[measure]);
 
 const useStyles = makeStyles({
   markLabel: {
@@ -90,16 +84,23 @@ const Coordinates = ({ type, name, projection, coordinates }) => {
           projection={projection}
         />
       ),
-    [name]
+    []
   );
 };
 
-const MapViz = ({ geoJson, dataProperty }) => {
-  const measure = dataProperty;
+const MapViz = ({ geoJson, selectedDataSource, metaData, year }) => {
+  const measure = selectedDataSource.key;
   const [long, lat] = useMemo(() => geoCentroid(geoJson), []);
   const [[left, bottom], [right, top]] = useMemo(() => geoBounds(geoJson), []);
-  const yearsAvailable = getYearsFromMeasure(geoJson, measure);
-  const [year, setYear] = useState(yearsAvailable.slice(-1)[0]);
+
+  const {
+    showTooltip,
+    hideTooltip,
+    tooltipOpen,
+    tooltipData,
+    tooltipLeft,
+    tooltipTop,
+  } = useTooltip();
 
   const projection = geoConicEqualArea()
     .parallels([bottom, top])
@@ -107,17 +108,108 @@ const MapViz = ({ geoJson, dataProperty }) => {
     .rotate([-8, 0])
     .center([left, lat]);
 
+  useMemo(
+    () =>
+      geoJson.features.forEach((feature) => {
+        feature.properties.centroid = projection(geoCentroid(feature));
+      }),
+    []
+  );
+
   const [minX, minY] = projection([left, top]);
   const [maxX, maxY] = projection([right, bottom]);
   const padding = 20;
 
-  const thresholds = [100, 200, 400, 800, 1600, 3200, 6400];
+  const thresholds = selectedDataSource.thresholds;
   const colorScale = scaleThreshold()
     .domain(thresholds)
-    .range(schemeRdPu[thresholds.length + 1]);
+    .range(ColorSchemes[selectedDataSource.colorScheme][thresholds.length + 1]);
+
+  const tooltipStyles = {
+    ...defaultStyles,
+    width: 130,
+    textOverflow: "ellipsis",
+  };
+  let tooltipTimeout;
+
+  const votesMetaData = metaData.filter(
+    (source) => source.dataTopic === "votes"
+  );
+  const partiesScale = scaleOrdinal({
+    domain: votesMetaData.map((source) => source.key),
+    range: votesMetaData.map((source) => Colors[source.colorScheme]),
+  });
 
   return (
     <MapVizWrap>
+      {tooltipOpen && tooltipData && (
+        <Tooltip top={tooltipTop} left={tooltipLeft} style={tooltipStyles}>
+          <div>
+            <strong>{tooltipData.title}</strong>
+          </div>
+          <div>
+            {round(
+              selectedDataSource.hasMultipleYears
+                ? tooltipData[measure][year]
+                : tooltipData[measure]
+            ) + "%"}
+          </div>
+          <div
+            style={{
+              padding: 5,
+              width: 130,
+              display: "flex",
+              justifyContent: "space-between",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                flexDirection: "column",
+              }}
+            >
+              <svg width={70} height={70}>
+                <Group opacity={0.9} top={35} left={35}>
+                  <Pie
+                    data={votesMetaData.map((source) => ({
+                      ...source,
+                      value: tooltipData[source.key],
+                    }))}
+                    pieValue={(datum) => datum.value}
+                    pieSortValues={null}
+                    outerRadius={35}
+                    fill={(datum) => partiesScale(datum.data.key)}
+                    centroid={([x, y], datum) =>
+                      datum.value > 10 ? (
+                        <text
+                          x={x - 5}
+                          y={y}
+                          style={{ fontSize: 4 }}
+                          fill={"white"}
+                        >
+                          {round(datum.value) + "%"}
+                        </text>
+                      ) : null
+                    }
+                  />
+                </Group>
+              </svg>
+            </div>
+            <LegendOrdinal
+              scale={partiesScale}
+              direction="column"
+              shape={"circle"}
+              style={{ fontSize: 5 }}
+              labelMargin="0 0 0 1px"
+              itemDirection="row"
+              shapeWidth={8}
+              shapeHeight={8}
+              shapeMargin={"0"}
+            />
+          </div>
+        </Tooltip>
+      )}
       <svg
         width={"100%"}
         height={"600px"}
@@ -125,21 +217,65 @@ const MapViz = ({ geoJson, dataProperty }) => {
           maxX - minX + 2 * padding
         } ${maxY - minY + 2 * padding}`}
       >
-        {geoJson.features.map((feature) => {
-          const { GEN, AGS } = feature.properties;
-          const value = feature.data[measure][year];
-          const { type, coordinates } = feature.geometry;
-          return (
-            <g fill={colorScale(value)}>
-              <Coordinates
-                type={type}
-                name={AGS}
-                coordinates={coordinates}
-                projection={projection}
-              />
-            </g>
-          );
-        })}
+        {useMemo(
+          () =>
+            [
+              ...geoJson.features.filter(
+                (feature) => feature.properties.AGS !== tooltipData?.id
+              ),
+              geoJson.features.find(
+                (feature) => feature.properties.AGS === tooltipData?.id
+              ),
+            ].map((feature) => {
+              if (!feature) return null;
+              const { GEN, AGS, centroid } = feature.properties;
+              const value = selectedDataSource.hasMultipleYears
+                ? feature.data[measure][year]
+                : feature.data[measure];
+              const { type, coordinates } = feature.geometry;
+              const [centroidLeft, centroidTop] = centroid;
+              return (
+                <g
+                  key={AGS}
+                  fill={colorScale(value)}
+                  onMouseLeave={() => {
+                    tooltipTimeout = window.setTimeout(hideTooltip, 300);
+                  }}
+                  onMouseMove={() => {
+                    if (tooltipTimeout) clearTimeout(tooltipTimeout);
+                    showTooltip({
+                      tooltipData: { ...feature.data, title: GEN, id: AGS },
+                      tooltipTop: centroidTop - padding,
+                      tooltipLeft: centroidLeft - minX + padding * 4,
+                    });
+                  }}
+                  onClick={() => {
+                    if (tooltipTimeout) clearTimeout(tooltipTimeout);
+                    showTooltip({
+                      tooltipData: { ...feature.data, title: GEN, id: AGS },
+                      tooltipTop: centroidTop - padding,
+                      tooltipLeft: centroidLeft - minX + padding * 4,
+                    });
+                  }}
+                  stroke={
+                    tooltipData?.id === AGS
+                      ? "rgba(80,80,80,0.9)"
+                      : "rgba(255,255,255,0.9)"
+                  }
+                  strokeWidth={tooltipData?.id === AGS ? "0.6px" : "0.2px"}
+                  id={GEN}
+                >
+                  <Coordinates
+                    type={type}
+                    name={AGS}
+                    coordinates={coordinates}
+                    projection={projection}
+                  />
+                </g>
+              );
+            }),
+          [tooltipData?.id, measure, year]
+        )}
       </svg>
       <LegendWrap>
         <LegendThreshold
@@ -147,29 +283,13 @@ const MapViz = ({ geoJson, dataProperty }) => {
           direction="row"
           labelMargin="3px 0 0 0"
           itemDirection="column"
-          shapeWidth={"70px"}
+          shapeWidth={"60px"}
           labelDelimiter={"-"}
           shapeMargin={"0"}
           labelLower={"<"}
           labelUpper={">"}
         />
       </LegendWrap>
-      <SliderWrap>
-        <Slider
-          classes={useStyles()}
-          color={"secondary"}
-          value={year}
-          onChange={(_, val) => setYear(val)}
-          aria-labelledby="discrete-slider"
-          step={1}
-          marks={yearsAvailable.map((y) => ({
-            label: `${y}`,
-            value: y,
-          }))}
-          min={Math.min(...yearsAvailable)}
-          max={Math.max(...yearsAvailable)}
-        />
-      </SliderWrap>
     </MapVizWrap>
   );
 };
