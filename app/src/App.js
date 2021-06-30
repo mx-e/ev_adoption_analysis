@@ -2,7 +2,7 @@ import MapView from "./views/map-view";
 import styled from "styled-components";
 import React, { useEffect, useState } from "react";
 import { requestData } from "./requests";
-import { CircularProgress } from "@material-ui/core";
+import { CircularProgress, Link } from "@material-ui/core";
 
 const AppWrap = styled.div`
   background-color: #282c34;
@@ -20,6 +20,12 @@ const Header = styled.h1`
   text-align: center;
   margin-bottom: 10px;
   font-size: 1.6em;
+`;
+
+const LinkBar = styled.h3`
+  display: flex;
+  flex-direction: row;
+  align-content: center;
 `;
 
 const CenteredLayout = styled.div`
@@ -45,6 +51,7 @@ const App = () => {
         Is political alignment predictive of electric vehicle purchase decisions
         ?
       </Header>
+
       {isDataLoaded ? (
         <MapView data={data} />
       ) : (
