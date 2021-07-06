@@ -1,6 +1,7 @@
 import sqlite3
 import numpy as np
 
+
 TOTAL_VOTES_ID = 11
 CDU_ID = 12
 SPD_ID = 13
@@ -14,6 +15,41 @@ DENSITY_ID = 1
 ACADEMICS_ID = 2
 INCOME_ID = 3
 CHARGERS_ID =19
+
+BEV_ID = 8
+HYBRID_ID = 7
+PLUG_IN_ID = 10
+
+COLORS = {
+    CDU_ID: 'black',
+    SPD_ID: 'red',
+    GREEN_ID: 'green',
+    FDP_ID: 'yellow',
+    LEFT_ID: 'purple',
+    AFD_ID: 'blue',
+    OTHERS_ID: 'grey',
+    DENSITY_ID: 'lightblue',
+    ACADEMICS_ID: 'orange',
+    INCOME_ID: 'violet',
+    CHARGERS_ID: 'olive'
+}
+
+LEGEND = {
+    CDU_ID: 'CDU/CSU',
+    SPD_ID: 'SPD',
+    GREEN_ID: 'Greens',
+    FDP_ID: 'FDP',
+    LEFT_ID: 'Left',
+    AFD_ID: 'AfD',
+    OTHERS_ID: 'other parties',
+    DENSITY_ID: 'Pop. Density',
+    ACADEMICS_ID: '% Academics',
+    INCOME_ID: 'Income',
+    CHARGERS_ID: 'Charging Points'
+}
+
+get_color = lambda id: COLORS.get(id, 'lightgrey')
+get_legend = lambda id: LEGEND.get(id, 'constant')
 
 def getRawData(year, election_type='FEDERAL'):
     connection = sqlite3.connect("./data/ev_adoption.sqlite")
@@ -61,36 +97,36 @@ def remove_outliers(data):
             inlier_ids.append(i)
     return data[inlier_ids]
 
-def get_X_all_parties(data):
+def pre_process(data):
     votes = data[:, CDU_ID:(OTHERS_ID + 1)]
     total_votes = data[:, TOTAL_VOTES_ID]
-
-    chargers = data[:, CHARGERS_ID]
-    total_cars = data[:, 4:10].sum(axis=1)
-    chargers = (chargers / total_cars).reshape(-1, 1)
-
     votes = (votes.T / np.tile(total_votes, (votes.shape[1], 1))).T
-    X = data[:, [DENSITY_ID, ACADEMICS_ID, INCOME_ID]]
-    X = np.concatenate((X.T, chargers.T, votes.T)).T
-    X /= X.mean(axis=0)
-    return X
-
-def get_X_single_party(data, party_id):
-    party_votes = data[:, party_id]
-    total_votes = data[:, TOTAL_VOTES_ID]
-    votes = (party_votes / total_votes).reshape(-1, 1)
 
     chargers = data[:, CHARGERS_ID]
     total_cars = data[:, 4:10].sum(axis=1)
-    chargers = (chargers / total_cars).reshape(-1, 1)
+    chargers = (chargers / total_cars)
 
-    X = data[:, [DENSITY_ID, ACADEMICS_ID, INCOME_ID]]
-    X = np.concatenate((X.T, chargers.T, votes.T)).T
-    X /= X.mean(axis=0)
+    pre_processed_data = data.copy()
+    pre_processed_data[:, CDU_ID:(OTHERS_ID + 1)] = votes
+    pre_processed_data[:, CHARGERS_ID] = chargers
+
+    return pre_processed_data
+
+def get_X_custom(data, paramIds, standardize=False):
+    X = data[:, paramIds]
+    if standardize:
+        X -= X.mean(axis=0)
+        X /= X.std(axis=0)
+    else:
+        X /= X.mean(axis=0)
     return X
 
-def get_Y(data, measure_id):
+def get_Y(data, measure_id, standardize=False):
     total_cars = data[:, 4:10].sum(axis=1)
     Y = data[:, measure_id] / total_cars
-    Y /= Y.mean()
+    if standardize:
+        Y -= Y.mean(axis=0)
+        Y /= Y.std(axis=0)
+    else:
+        Y /= Y.mean()
     return Y
